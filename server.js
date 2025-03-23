@@ -1,367 +1,291 @@
-const express = require("express");
-const { ethers } = require("ethers");
-const cors = require("cors");
-const bodyParser = require("body-parser");
-const fs = require("fs");
-const path = require("path");
-require("dotenv").config();
-
+import express from 'express';
+import cors from 'cors';
+import { UltraHonkBackend } from "@aztec/bb.js";
+import { Noir } from "@noir-lang/noir_js";
+import { compile_program, createFileManager } from "@noir-lang/noir_wasm";
+import path from 'path';
+import { fileURLToPath } from 'url';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-const port = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json());
 
-let contractABI;
-try {
-  const abiPath = path.resolve(__dirname, "./contracts/sessionManagerABI.json");
-  const abiFile = fs.readFileSync(abiPath, "utf8");
-  const abiJson = JSON.parse(abiFile);
-  contractABI = abiJson.abi;
-  console.log("Contract ABI loaded successfully from file");
-} catch (error) {
-  console.error("Error loading contract ABI from file:", error);
+async function initializeACVMAndNoirC() {
+  const acvmModule = await import('@noir-lang/acvm_js');
+  const noircModule = await import('@noir-lang/noirc_abi');
+  
+  console.log("ACVM and NoirC modules initialized");
+  return { acvmModule, noircModule };
+}
+
+async function getCircuit(circuitName) {
+  const circuitPath = path.resolve(__dirname, `./circuit/${circuitName}`);
+  const fm = createFileManager(circuitPath);
+  const compiledCode = await compile_program(fm);
+  return compiledCode;
+}
+
+let sessionCircuit;
+let sessionBackend;
+let leaseCircuit;
+let leaseBackend;
+
+async function initializeCircuits() {
+  try {
+    await initializeACVMAndNoirC();
+    console.log("Compiling session circuit...");
+    const { program: sessionProgram } = await getCircuit('session');
+    sessionCircuit = new Noir(sessionProgram);
+    sessionBackend = new UltraHonkBackend(sessionProgram.bytecode);
+    console.log("Session circuit initialized successfully");
+
+    console.log("Compiling lease circuit...");
+    const { program: leaseProgram } = await getCircuit('lease');
+    leaseCircuit = new Noir(leaseProgram);
+    leaseBackend = new UltraHonkBackend(leaseProgram.bytecode);
+    console.log("Lease circuit initialized successfully");
+  } catch (error) {
+    console.error("Error initializing circuits:", error);
+    throw error;
+  }
+}
+
+app.post('/session_start', async (req, res) => {
+  try {
+    const { start_time, slot_id, session_commitment } = req.body;
+    
+    if (!start_time || !slot_id || !session_commitment) {
+      return res.status(400).json({ 
+        error: 'Missing required parameters: start_time, slot_id, and session_commitment are required' 
+      });
+    }
+
+    console.log("Generating witness for session start...");
+    const { witness } = await sessionCircuit.execute({ 
+      start_time, 
+      slot_id, 
+      session_commitment,
+      end_time: 0,
+      price_per_minute: 0,
+      total_reward: 0,
+      session_id: new Array(32).fill(0),
+      is_start_session: true
+    });
+
+    console.log("Generating proof for session start...");
+    const proof = await sessionBackend.generateProof(witness);
+
+    console.log("Verifying proof for session start...");
+    const isValid = await sessionBackend.verifyProof(proof);
+    console.log(`Session start proof is ${isValid ? "valid" : "invalid"}`);
+
+    res.json({
+      proof: proof.proof,
+      publicInputs: proof.publicInputs,
+      isValid
+    });
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ error: 'Failed to generate or verify proof for session start' });
+  }
+});
+
+app.post('/session_end', async (req, res) => {
+  try {
+    const { 
+      start_time, 
+      end_time, 
+      price_per_minute, 
+      slot_id,
+      total_reward, 
+      session_id
+    } = req.body;
+    
+    if (!start_time || !end_time || !price_per_minute || !slot_id || !total_reward || !session_id) {
+      return res.status(400).json({ 
+        error: 'Missing required parameters for session end' 
+      });
+    }
+
+    console.log("Generating witness for session end...");
+    const { witness } = await sessionCircuit.execute({ 
+      start_time, 
+      end_time,
+      price_per_minute,
+      slot_id,
+      total_reward,
+      session_id,
+      session_commitment: new Array(32).fill(0),
+      is_start_session: false
+    });
+
+    console.log("Generating proof for session end...");
+    const proof = await sessionBackend.generateProof(witness);
+
+    console.log("Verifying proof for session end...");
+    const isValid = await sessionBackend.verifyProof(proof);
+    console.log(`Session end proof is ${isValid ? "valid" : "invalid"}`);
+
+    res.json({
+      proof: proof.proof,
+      publicInputs: proof.publicInputs,
+      isValid
+    });
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ error: 'Failed to generate or verify proof for session end' });
+  }
+});
+
+app.post('/verify_full_lease', async (req, res) => {
+  try {
+    const { 
+      lease_bytes,
+      address_bytes,
+      lease_start,
+      lease_end,
+      expected_lease_hash,
+      expected_address_hash,
+      current_date
+    } = req.body;
+    
+    if (!lease_bytes || !address_bytes || lease_start === undefined || 
+        lease_end === undefined || !expected_lease_hash || 
+        !expected_address_hash || current_date === undefined) {
+      return res.status(400).json({ 
+        error: 'Missing required parameters for lease verification' 
+      });
+    }
+
+    console.log("Generating witness for full lease verification...");
+    const { witness } = await leaseCircuit.execute({ 
+      lease_bytes,
+      address_bytes,
+      lease_start,
+      lease_end,
+      expected_lease_hash,
+      expected_address_hash,
+      current_date,
+      full_verification: true
+    });
+
+    console.log("Generating proof for full lease verification...");
+    const proof = await leaseBackend.generateProof(witness);
+
+    console.log("Verifying proof for full lease verification...");
+    const isValid = await leaseBackend.verifyProof(proof);
+    console.log(`Full lease verification proof is ${isValid ? "valid" : "invalid"}`);
+
+    res.json({
+      proof: proof.proof,
+      publicInputs: proof.publicInputs,
+      isValid
+    });
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ error: 'Failed to generate or verify proof for full lease verification' });
+  }
+});
+
+app.post('/verify_address', async (req, res) => {
+  try {
+    const { 
+      address_bytes,
+      expected_address_hash
+    } = req.body;
+    
+    if (!address_bytes || !expected_address_hash) {
+      return res.status(400).json({ 
+        error: 'Missing required parameters: address_bytes and expected_address_hash are required' 
+      });
+    }
+
+    console.log("Generating witness for address verification...");
+    const { witness } = await leaseCircuit.execute({ 
+      address_bytes,
+      expected_address_hash,
+      lease_bytes: new Array(128).fill(0),
+      lease_start: 0,
+      lease_end: 0,
+      expected_lease_hash: new Array(32).fill(0),
+      current_date: 0,
+      full_verification: false
+    });
+
+    console.log("Generating proof for address verification...");
+    const proof = await leaseBackend.generateProof(witness);
+
+    console.log("Verifying proof for address verification...");
+    const isValid = await leaseBackend.verifyProof(proof);
+    console.log(`Address verification proof is ${isValid ? "valid" : "invalid"}`);
+
+    res.json({
+      proof: proof.proof,
+      publicInputs: proof.publicInputs,
+      isValid
+    });
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ error: 'Failed to generate or verify proof for address verification' });
+  }
+});
+
+
+app.post('/verify_session', async (req, res) => {
+  try {
+    const { proof, publicInputs } = req.body;
+    
+    if (!proof || !publicInputs) {
+      return res.status(400).json({ error: 'Proof and publicInputs are required' });
+    }
+
+    console.log("Verifying session proof...");
+    const isValid = await sessionBackend.verifyProof({ proof, publicInputs });
+    console.log(`Session proof is ${isValid ? "valid" : "invalid"}`);
+
+    res.json({ isValid });
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ error: 'Failed to verify session proof' });
+  }
+});
+
+app.post('/verify_lease', async (req, res) => {
+  try {
+    const { proof, publicInputs } = req.body;
+    
+    if (!proof || !publicInputs) {
+      return res.status(400).json({ error: 'Proof and publicInputs are required' });
+    }
+
+    console.log("Verifying lease proof...");
+    const isValid = await leaseBackend.verifyProof({ proof, publicInputs });
+    console.log(`Lease proof is ${isValid ? "valid" : "invalid"}`);
+
+    res.json({ isValid });
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).json({ error: 'Failed to verify lease proof' });
+  }
+});
+
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'ok',
+    services: {
+      session_circuit: !!sessionCircuit,
+      lease_circuit: !!leaseCircuit
+    }
+  });
+});
+
+initializeCircuits().then(() => {
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+  });
+}).catch(error => {
+  console.error("Failed to start server:", error);
   process.exit(1);
-}
-
-let provider;
-let contract;
-
-try {
-  provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
-  const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
-  contract = new ethers.Contract(
-    process.env.CONTRACT_ADDRESS,
-    contractABI,
-    wallet
-  );
-
-  console.log(
-    "Successfully connected to contract at:",
-    process.env.CONTRACT_ADDRESS
-  );
-} catch (error) {
-  console.error("Error connecting to contract:", error);
-}
-
-function generateSessionId(spotOwnerAddress) {
-  const timestamp = Date.now();
-  const addressPart = spotOwnerAddress.slice(-8);
-  const randomPart = Math.random().toString(36).substring(2, 8);
-  return `${addressPart}-${timestamp}-${randomPart}`;
-}
-
-// 1. Create a reservation
-app.post("/api/reservations", async (req, res) => {
-  try {
-    const { user, spotOwner, startTime, endTime } = req.body;
-    const parkingMeterDid = process.env.PARKING_METER_DID;
-    if (!user || !spotOwner || !parkingMeterDid || !startTime || !endTime) {
-      return res.status(400).json({ error: "Missing required fields" });
-    }
-    const finalSessionId = generateSessionId(spotOwner);
-    const startTimestamp = BigInt(
-      Math.floor(new Date(startTime).getTime() / 1000)
-    );
-    const endTimestamp = BigInt(Math.floor(new Date(endTime).getTime() / 1000));
-
-    const tx = await contract.createReservation(
-      finalSessionId,
-      user,
-      spotOwner,
-      parkingMeterDid,
-      startTimestamp,
-      endTimestamp
-    );
-
-    const receipt = await tx.wait();
-
-    res.status(201).json({
-      success: true,
-      message: "Reservation created successfully",
-      transactionHash: receipt.transactionHash,
-      sessionId: finalSessionId,
-    });
-  } catch (error) {
-    console.error("Error creating reservation:", error);
-    res
-      .status(500)
-      .json({ error: "Failed to create reservation", details: error.message });
-  }
-});
-
-// 2. Start a session
-app.post("/api/sessions/start", async (req, res) => {
-  try {
-    const { sessionId } = req.body;
-
-    if (!sessionId) {
-      return res.status(400).json({ error: "Session ID is required" });
-    }
-
-    const tx = await contract.startSession(sessionId);
-    const receipt = await tx.wait();
-
-    res.status(200).json({
-      success: true,
-      message: "Session started successfully",
-      transactionHash: receipt.transactionHash,
-    });
-  } catch (error) {
-    console.error("Error starting session:", error);
-    res
-      .status(500)
-      .json({ error: "Failed to start session", details: error.message });
-  }
-});
-
-// 3. End a session
-app.post("/api/sessions/end", async (req, res) => {
-  try {
-    const { sessionId, rewardAmount } = req.body;
-
-    if (!sessionId || rewardAmount === undefined) {
-      return res
-        .status(400)
-        .json({ error: "Session ID and reward amount are required" });
-    }
-
-    const tx = await contract.endSession(sessionId, BigInt(rewardAmount));
-    const receipt = await tx.wait();
-
-    res.status(200).json({
-      success: true,
-      message: "Session ended successfully",
-      transactionHash: receipt.transactionHash,
-    });
-  } catch (error) {
-    console.error("Error ending session:", error);
-    res
-      .status(500)
-      .json({ error: "Failed to end session", details: error.message });
-  }
-});
-
-// 4. Cancel a session
-app.post("/api/sessions/cancel", async (req, res) => {
-  try {
-    const { sessionId } = req.body;
-
-    if (!sessionId) {
-      return res.status(400).json({ error: "Session ID is required" });
-    }
-
-    const tx = await contract.cancelSession(sessionId);
-    const receipt = await tx.wait();
-
-    res.status(200).json({
-      success: true,
-      message: "Session cancelled successfully",
-      transactionHash: receipt.transactionHash,
-    });
-  } catch (error) {
-    console.error("Error cancelling session:", error);
-    res
-      .status(500)
-      .json({ error: "Failed to cancel session", details: error.message });
-  }
-});
-
-// 5. Get user sessions
-app.get("/api/users/:address/sessions", async (req, res) => {
-  try {
-    const { address } = req.params;
-
-    if (!address) {
-      return res.status(400).json({ error: "User address is required" });
-    }
-
-    const sessions = await contract.getUserSessions(address);
-
-    res.status(200).json({
-      success: true,
-      sessions,
-    });
-  } catch (error) {
-    console.error("Error fetching user sessions:", error);
-    res
-      .status(500)
-      .json({ error: "Failed to fetch user sessions", details: error.message });
-  }
-});
-
-// 6. Get spot owner sessions
-app.get("/api/spotowners/:address/sessions", async (req, res) => {
-  try {
-    const { address } = req.params;
-
-    if (!address) {
-      return res.status(400).json({ error: "Spot owner address is required" });
-    }
-
-    const sessions = await contract.getSpotOwnerSessions(address);
-
-    res.status(200).json({
-      success: true,
-      sessions,
-    });
-  } catch (error) {
-    console.error("Error fetching spot owner sessions:", error);
-    res
-      .status(500)
-      .json({
-        error: "Failed to fetch spot owner sessions",
-        details: error.message,
-      });
-  }
-});
-
-// 7. Get session details
-app.get("/api/sessions/:sessionId", async (req, res) => {
-  try {
-    const { sessionId } = req.params;
-
-    if (!sessionId) {
-      return res.status(400).json({ error: "Session ID is required" });
-    }
-
-    const sessionDetails = await contract.getSessionDetails(sessionId);
-    const statusMap = ["RESERVED", "ACTIVE", "COMPLETED", "CANCELLED"];
-
-    const formattedSession = {
-      sessionId: sessionDetails.sessionId,
-      user: sessionDetails.user,
-      spotOwner: sessionDetails.spotOwner,
-      parkingMeterDid: sessionDetails.parkingMeterDid,
-      startTime: new Date(
-        Number(sessionDetails.startTime) * 1000
-      ).toISOString(),
-      endTime: new Date(Number(sessionDetails.endTime) * 1000).toISOString(),
-      reservationTime: new Date(
-        Number(sessionDetails.reservationTime) * 1000
-      ).toISOString(),
-      rewardAmount: sessionDetails.rewardAmount.toString(),
-      status: statusMap[sessionDetails.status] || "UNKNOWN",
-    };
-
-    res.status(200).json({
-      success: true,
-      session: formattedSession,
-    });
-  } catch (error) {
-    console.error("Error fetching session details:", error);
-    res
-      .status(500)
-      .json({
-        error: "Failed to fetch session details",
-        details: error.message,
-      });
-  }
-});
-
-// 8. Get spot owner's earliest future reserved session ID
-app.get(
-  "/api/spotowners/:address/earliest-future-session-id",
-  async (req, res) => {
-    try {
-      const { address } = req.params;
-
-      if (!address) {
-        return res
-          .status(400)
-          .json({ error: "Spot owner address is required" });
-      }
-      const sessions = await contract.getSpotOwnerSessions(address);
-
-      if (!sessions || sessions.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: "No sessions found for this spot owner",
-        });
-      }
-      const statusMap = ["RESERVED", "ACTIVE", "COMPLETED", "CANCELLED"];
-
-      const currentTime = BigInt(Math.floor(Date.now() / 1000));
-      let earliestSessionId = null;
-      let earliestTime = null;
-      for (const sessionId of sessions) {
-        const sessionDetails = await contract.getSessionDetails(sessionId);
-        if (
-          statusMap[sessionDetails.status] === "RESERVED" &&
-          sessionDetails.startTime > currentTime
-        ) {
-          if (
-            earliestTime === null ||
-            sessionDetails.startTime < earliestTime
-          ) {
-            earliestTime = sessionDetails.startTime;
-            earliestSessionId = sessionId;
-          }
-        }
-      }
-
-      if (!earliestSessionId) {
-        return res.status(404).json({
-          success: false,
-          message: "No future reserved sessions found for this spot owner",
-        });
-      }
-
-      res.status(200).json({
-        success: true,
-        sessionId: earliestSessionId,
-      });
-    } catch (error) {
-      console.error(
-        "Error fetching earliest future reserved session ID:",
-        error
-      );
-      res.status(500).json({
-        error: "Failed to fetch earliest future reserved session ID",
-        details: error.message,
-      });
-    }
-  }
-);
-
-// 9. Get ZKP token balance for an address
-app.get("/api/token/balance/:address", async (req, res) => {
-  try {
-    const { address } = req.params;
-
-    if (!address) {
-      return res.status(400).json({ error: "User address is required" });
-    }
-    const zkpTokenABI = require("./contracts/zkpTokenABI.json").abi;
-    const zkpTokenAddress = "0xB39B8D04E64bBbff61A0fF57BFa4b5DA1198B8af";
-
-    const zkpTokenContract = new ethers.Contract(
-      zkpTokenAddress,
-      zkpTokenABI,
-      provider
-    );
-
-    const balance = await zkpTokenContract.balanceOf(address);
-    const decimals = await zkpTokenContract.decimals();
-
-    const formattedBalance = ethers.formatUnits(balance, decimals);
-
-    res.status(200).json({
-      success: true,
-      address: address,
-      balance: balance.toString(),
-      formattedBalance: formattedBalance,
-      tokenSymbol: await zkpTokenContract.symbol(),
-    });
-  } catch (error) {
-    console.error("Error fetching token balance:", error);
-    res.status(500).json({
-      error: "Failed to fetch token balance",
-      details: error.message,
-    });
-  }
-});
-
-app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
 });
