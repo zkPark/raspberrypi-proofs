@@ -1,0 +1,618 @@
+{
+	"name": "ParkingSessionManager",
+	"address": "0x89268643984cd2823c8deb2d48c78059880d0f10",
+	"abi": [
+	  {
+		"inputs": [
+		  {
+			"internalType": "string",
+			"name": "_sessionId",
+			"type": "string"
+		  }
+		],
+		"name": "cancelSession",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	  },
+	  {
+		"inputs": [
+		  {
+			"internalType": "string",
+			"name": "_sessionId",
+			"type": "string"
+		  },
+		  {
+			"internalType": "address",
+			"name": "_user",
+			"type": "address"
+		  },
+		  {
+			"internalType": "address",
+			"name": "_spotOwner",
+			"type": "address"
+		  },
+		  {
+			"internalType": "string",
+			"name": "_parkingMeterDid",
+			"type": "string"
+		  },
+		  {
+			"internalType": "uint256",
+			"name": "_startTime",
+			"type": "uint256"
+		  },
+		  {
+			"internalType": "uint256",
+			"name": "_endTime",
+			"type": "uint256"
+		  }
+		],
+		"name": "createReservation",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	  },
+	  {
+		"inputs": [
+		  {
+			"internalType": "address",
+			"name": "_user",
+			"type": "address"
+		  }
+		],
+		"name": "dRewards",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	  },
+	  {
+		"inputs": [
+		  {
+			"internalType": "string",
+			"name": "_sessionId",
+			"type": "string"
+		  },
+		  {
+			"internalType": "uint256",
+			"name": "_rewardAmount",
+			"type": "uint256"
+		  }
+		],
+		"name": "endSession",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	  },
+	  {
+		"inputs": [
+		  {
+			"internalType": "address",
+			"name": "_tokenAddress",
+			"type": "address"
+		  }
+		],
+		"stateMutability": "nonpayable",
+		"type": "constructor"
+	  },
+	  {
+		"inputs": [
+		  {
+			"internalType": "address",
+			"name": "owner",
+			"type": "address"
+		  }
+		],
+		"name": "OwnableInvalidOwner",
+		"type": "error"
+	  },
+	  {
+		"inputs": [
+		  {
+			"internalType": "address",
+			"name": "account",
+			"type": "address"
+		  }
+		],
+		"name": "OwnableUnauthorizedAccount",
+		"type": "error"
+	  },
+	  {
+		"anonymous": false,
+		"inputs": [
+		  {
+			"indexed": true,
+			"internalType": "address",
+			"name": "previousOwner",
+			"type": "address"
+		  },
+		  {
+			"indexed": true,
+			"internalType": "address",
+			"name": "newOwner",
+			"type": "address"
+		  }
+		],
+		"name": "OwnershipTransferred",
+		"type": "event"
+	  },
+	  {
+		"inputs": [],
+		"name": "renounceOwnership",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	  },
+	  {
+		"anonymous": false,
+		"inputs": [
+		  {
+			"indexed": false,
+			"internalType": "string",
+			"name": "sessionId",
+			"type": "string"
+		  },
+		  {
+			"indexed": true,
+			"internalType": "address",
+			"name": "user",
+			"type": "address"
+		  },
+		  {
+			"indexed": true,
+			"internalType": "address",
+			"name": "spotOwner",
+			"type": "address"
+		  },
+		  {
+			"indexed": false,
+			"internalType": "uint256",
+			"name": "userReward",
+			"type": "uint256"
+		  },
+		  {
+			"indexed": false,
+			"internalType": "uint256",
+			"name": "ownerReward",
+			"type": "uint256"
+		  }
+		],
+		"name": "RewardDistributed",
+		"type": "event"
+	  },
+	  {
+		"anonymous": false,
+		"inputs": [
+		  {
+			"indexed": false,
+			"internalType": "string",
+			"name": "sessionId",
+			"type": "string"
+		  },
+		  {
+			"indexed": false,
+			"internalType": "uint256",
+			"name": "cancellationTime",
+			"type": "uint256"
+		  }
+		],
+		"name": "SessionCancelled",
+		"type": "event"
+	  },
+	  {
+		"anonymous": false,
+		"inputs": [
+		  {
+			"indexed": false,
+			"internalType": "string",
+			"name": "sessionId",
+			"type": "string"
+		  },
+		  {
+			"indexed": false,
+			"internalType": "uint256",
+			"name": "actualEndTime",
+			"type": "uint256"
+		  },
+		  {
+			"indexed": false,
+			"internalType": "uint256",
+			"name": "rewardAmount",
+			"type": "uint256"
+		  }
+		],
+		"name": "SessionEnded",
+		"type": "event"
+	  },
+	  {
+		"anonymous": false,
+		"inputs": [
+		  {
+			"indexed": false,
+			"internalType": "string",
+			"name": "sessionId",
+			"type": "string"
+		  },
+		  {
+			"indexed": false,
+			"internalType": "uint256",
+			"name": "scheduledEndTime",
+			"type": "uint256"
+		  },
+		  {
+			"indexed": false,
+			"internalType": "uint256",
+			"name": "actualEndTime",
+			"type": "uint256"
+		  }
+		],
+		"name": "SessionEndedEarly",
+		"type": "event"
+	  },
+	  {
+		"anonymous": false,
+		"inputs": [
+		  {
+			"indexed": false,
+			"internalType": "string",
+			"name": "sessionId",
+			"type": "string"
+		  },
+		  {
+			"indexed": true,
+			"internalType": "address",
+			"name": "user",
+			"type": "address"
+		  },
+		  {
+			"indexed": true,
+			"internalType": "address",
+			"name": "spotOwner",
+			"type": "address"
+		  },
+		  {
+			"indexed": false,
+			"internalType": "string",
+			"name": "parkingMeterDid",
+			"type": "string"
+		  },
+		  {
+			"indexed": false,
+			"internalType": "uint256",
+			"name": "startTime",
+			"type": "uint256"
+		  },
+		  {
+			"indexed": false,
+			"internalType": "uint256",
+			"name": "endTime",
+			"type": "uint256"
+		  }
+		],
+		"name": "SessionReserved",
+		"type": "event"
+	  },
+	  {
+		"anonymous": false,
+		"inputs": [
+		  {
+			"indexed": false,
+			"internalType": "string",
+			"name": "sessionId",
+			"type": "string"
+		  },
+		  {
+			"indexed": false,
+			"internalType": "uint256",
+			"name": "actualStartTime",
+			"type": "uint256"
+		  }
+		],
+		"name": "SessionStarted",
+		"type": "event"
+	  },
+	  {
+		"anonymous": false,
+		"inputs": [
+		  {
+			"indexed": false,
+			"internalType": "string",
+			"name": "sessionId",
+			"type": "string"
+		  },
+		  {
+			"indexed": false,
+			"internalType": "uint256",
+			"name": "scheduledStartTime",
+			"type": "uint256"
+		  },
+		  {
+			"indexed": false,
+			"internalType": "uint256",
+			"name": "actualStartTime",
+			"type": "uint256"
+		  }
+		],
+		"name": "SessionStartedEarly",
+		"type": "event"
+	  },
+	  {
+		"inputs": [
+		  {
+			"internalType": "string",
+			"name": "_sessionId",
+			"type": "string"
+		  }
+		],
+		"name": "startSession",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	  },
+	  {
+		"inputs": [
+		  {
+			"internalType": "address",
+			"name": "newOwner",
+			"type": "address"
+		  }
+		],
+		"name": "transferOwnership",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	  },
+	  {
+		"inputs": [
+		  {
+			"internalType": "address",
+			"name": "_newTokenAddress",
+			"type": "address"
+		  }
+		],
+		"name": "updateTokenAddress",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	  },
+	  {
+		"inputs": [
+		  {
+			"internalType": "string",
+			"name": "_sessionId",
+			"type": "string"
+		  }
+		],
+		"name": "getSessionDetails",
+		"outputs": [
+		  {
+			"components": [
+			  {
+				"internalType": "string",
+				"name": "sessionId",
+				"type": "string"
+			  },
+			  {
+				"internalType": "address",
+				"name": "user",
+				"type": "address"
+			  },
+			  {
+				"internalType": "address",
+				"name": "spotOwner",
+				"type": "address"
+			  },
+			  {
+				"internalType": "string",
+				"name": "parkingMeterDid",
+				"type": "string"
+			  },
+			  {
+				"internalType": "uint256",
+				"name": "startTime",
+				"type": "uint256"
+			  },
+			  {
+				"internalType": "uint256",
+				"name": "endTime",
+				"type": "uint256"
+			  },
+			  {
+				"internalType": "uint256",
+				"name": "reservationTime",
+				"type": "uint256"
+			  },
+			  {
+				"internalType": "uint256",
+				"name": "rewardAmount",
+				"type": "uint256"
+			  },
+			  {
+				"internalType": "enum ParkingSessionManager.SessionStatus",
+				"name": "status",
+				"type": "uint8"
+			  }
+			],
+			"internalType": "struct ParkingSessionManager.ParkingSession",
+			"name": "",
+			"type": "tuple"
+		  }
+		],
+		"stateMutability": "view",
+		"type": "function"
+	  },
+	  {
+		"inputs": [
+		  {
+			"internalType": "address",
+			"name": "_spotOwner",
+			"type": "address"
+		  }
+		],
+		"name": "getSpotOwnerSessions",
+		"outputs": [
+		  {
+			"internalType": "string[]",
+			"name": "",
+			"type": "string[]"
+		  }
+		],
+		"stateMutability": "view",
+		"type": "function"
+	  },
+	  {
+		"inputs": [
+		  {
+			"internalType": "address",
+			"name": "_user",
+			"type": "address"
+		  }
+		],
+		"name": "getUserSessions",
+		"outputs": [
+		  {
+			"internalType": "string[]",
+			"name": "",
+			"type": "string[]"
+		  }
+		],
+		"stateMutability": "view",
+		"type": "function"
+	  },
+	  {
+		"inputs": [],
+		"name": "owner",
+		"outputs": [
+		  {
+			"internalType": "address",
+			"name": "",
+			"type": "address"
+		  }
+		],
+		"stateMutability": "view",
+		"type": "function"
+	  },
+	  {
+		"inputs": [
+		  {
+			"internalType": "string",
+			"name": "",
+			"type": "string"
+		  }
+		],
+		"name": "parkingSessions",
+		"outputs": [
+		  {
+			"internalType": "string",
+			"name": "sessionId",
+			"type": "string"
+		  },
+		  {
+			"internalType": "address",
+			"name": "user",
+			"type": "address"
+		  },
+		  {
+			"internalType": "address",
+			"name": "spotOwner",
+			"type": "address"
+		  },
+		  {
+			"internalType": "string",
+			"name": "parkingMeterDid",
+			"type": "string"
+		  },
+		  {
+			"internalType": "uint256",
+			"name": "startTime",
+			"type": "uint256"
+		  },
+		  {
+			"internalType": "uint256",
+			"name": "endTime",
+			"type": "uint256"
+		  },
+		  {
+			"internalType": "uint256",
+			"name": "reservationTime",
+			"type": "uint256"
+		  },
+		  {
+			"internalType": "uint256",
+			"name": "rewardAmount",
+			"type": "uint256"
+		  },
+		  {
+			"internalType": "enum ParkingSessionManager.SessionStatus",
+			"name": "status",
+			"type": "uint8"
+		  }
+		],
+		"stateMutability": "view",
+		"type": "function"
+	  },
+	  {
+		"inputs": [
+		  {
+			"internalType": "address",
+			"name": "",
+			"type": "address"
+		  },
+		  {
+			"internalType": "uint256",
+			"name": "",
+			"type": "uint256"
+		  }
+		],
+		"name": "spotOwnerSessions",
+		"outputs": [
+		  {
+			"internalType": "string",
+			"name": "",
+			"type": "string"
+		  }
+		],
+		"stateMutability": "view",
+		"type": "function"
+	  },
+	  {
+		"inputs": [
+		  {
+			"internalType": "address",
+			"name": "",
+			"type": "address"
+		  },
+		  {
+			"internalType": "uint256",
+			"name": "",
+			"type": "uint256"
+		  }
+		],
+		"name": "userSessions",
+		"outputs": [
+		  {
+			"internalType": "string",
+			"name": "",
+			"type": "string"
+		  }
+		],
+		"stateMutability": "view",
+		"type": "function"
+	  },
+	  {
+		"inputs": [],
+		"name": "zkParkToken",
+		"outputs": [
+		  {
+			"internalType": "contract IZKParkToken",
+			"name": "",
+			"type": "address"
+		  }
+		],
+		"stateMutability": "view",
+		"type": "function"
+	  }
+	],
+	"filePath": "zkp/sessionManager.sol",
+	"pinnedAt": 1742677006290
+  }
