@@ -5,12 +5,19 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+import {LeaseHonkVerifier} from './LeaseVerifier.sol'
+import {SessionHonkVerifier} from './SessionVerifier.sol'
+
 interface IZKParkToken is IERC20 {
     function mint(address to, uint256 amount) external;
 }
 
 contract ParkingSessionManager is Ownable, ReentrancyGuard {
+
+    LeaseHonkVerifier leaseVerifier;
+    SessionHonkVerifier sessionVerifier;
     IZKParkToken public zkParkToken;
+
     enum SessionStatus { RESERVED, ACTIVE, COMPLETED, CANCELLED }
     
     struct ParkingSession {
@@ -54,8 +61,10 @@ contract ParkingSessionManager is Ownable, ReentrancyGuard {
     event SessionStartedEarly(string sessionId, uint256 scheduledStartTime, uint256 actualStartTime);
     event SessionEndedEarly(string sessionId, uint256 scheduledEndTime, uint256 actualEndTime);
     
-    constructor(address _tokenAddress) Ownable(msg.sender) {
+    constructor(address _tokenAddress, address _lverifier, address _sverifier) Ownable(msg.sender) {
         zkParkToken = IZKParkToken(_tokenAddress);
+        leaseVerifier = LeaseHonkVerifier(_lverifier);
+        sessionVerifier = SessionHonkVerifier(_sverifier);
     }
     
     function updateTokenAddress(address _newTokenAddress) external onlyOwner {
@@ -120,11 +129,36 @@ contract ParkingSessionManager is Ownable, ReentrancyGuard {
         emit SessionStarted(_sessionId, block.timestamp);
     }
 
-    function endSession(string memory _sessionId, uint256 _rewardAmount) external nonReentrant {
+    function verifySessionData(bytes calldata proof, string memory _sessionId, uint256 _rewardAmount) public returns (bool) {
+        ParkingSession storage session = parkingSessions[_sessionId];
+
+        require(bytes(session.sessionId).length > 0, "Session does not exist");
+        require(session.status == SessionStatus.ACTIVE, "Session not active");
+
+        bytes32[] memory publicInputs = new bytes32[](4);
+        publicInputs[0] = _sessionId;
+        publicInputs[1] = _rewardAmount;
+        publicInputs[2] = parkingSessions[_sessionId].startTime;
+        publicInputs[3] = parkingSessions[_sessionId].endTime;
+
+        require(sessionVerifier.verify(proof, publicInputs), "Invalid proof");
+
+        return true;
+    }
+
+    function endSession(bytes calldata proof, string memory _sessionId, uint256 _rewardAmount) external nonReentrant {
         ParkingSession storage session = parkingSessions[_sessionId];
         
         require(bytes(session.sessionId).length > 0, "Session does not exist");
         require(session.status == SessionStatus.ACTIVE, "Session not active");
+
+        bytes32[] memory publicInputs = new bytes32[](4);
+        publicInputs[0] = _sessionId;
+        publicInputs[1] = _rewardAmount;
+        publicInputs[2] = parkingSessions[_sessionId].startTime;
+        publicInputs[3] = parkingSessions[_sessionId].endTime;
+
+        require(sessionVerifier.verify(proof, publicInputs), "Invalid proof");
         
         if (block.timestamp < session.endTime) {
             emit SessionEndedEarly(_sessionId, session.endTime, block.timestamp);
